@@ -43,4 +43,17 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
+// GET /api/screens/my — get screens owned by logged in user
+router.get('/my', auth, async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT * FROM screens WHERE owner_id = $1 ORDER BY created_at DESC',
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;
