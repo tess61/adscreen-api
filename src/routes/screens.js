@@ -15,6 +15,20 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/screens/my — screens owned by logged in user
+// ⚠️ Must be ABOVE /:id route
+router.get('/my', auth, async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT * FROM screens WHERE owner_id = $1 ORDER BY created_at DESC',
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // GET /api/screens/:id — one screen (public)
 router.get('/:id', async (req, res) => {
   try {
@@ -43,14 +57,19 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-// GET /api/screens/my — get screens owned by logged in user
-router.get('/my', auth, async (req, res) => {
+// PATCH /api/screens/:id — update screen (owner only)
+router.patch('/:id', auth, async (req, res) => {
   try {
-    const result = await db.query(
-      'SELECT * FROM screens WHERE owner_id = $1 ORDER BY created_at DESC',
-      [req.user.id]
+    const screen = await db.query('SELECT * FROM screens WHERE id = $1', [req.params.id]);
+    if (screen.rows.length === 0) return res.status(404).json({ message: 'Screen not found.' });
+    if (screen.rows[0].owner_id !== req.user.id) return res.status(403).json({ message: 'Not authorized.' });
+
+    const { name, location, lat, lng, price, size, resolution, traffic, description, available } = req.body;
+    const updated = await db.query(
+      'UPDATE screens SET name=$1, location=$2, lat=$3, lng=$4, price=$5, size=$6, resolution=$7, traffic=$8, description=$9, available=$10 WHERE id=$11 RETURNING *',
+      [name, location, lat, lng, price, size, resolution, traffic, description, available, req.params.id]
     );
-    res.json(result.rows);
+    res.json(updated.rows[0]);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
