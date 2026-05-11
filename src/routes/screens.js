@@ -29,8 +29,7 @@ router.get('/my', auth, async (req, res) => {
   }
 });
 
-// GET /api/screens/:id/slots — get slots for a screen
-// ⚠️ Must be ABOVE /:id
+// GET /api/screens/:id/slots — get slots a screen offers
 router.get('/:id/slots', async (req, res) => {
   try {
     const result = await db.query(
@@ -38,6 +37,40 @@ router.get('/:id/slots', async (req, res) => {
       [req.params.id]
     );
     res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/screens/:id/availability — check which slots are free for a date range
+router.get('/:id/availability', async (req, res) => {
+  try {
+    const { start_date, end_date } = req.query;
+    if (!start_date || !end_date) {
+      return res.status(400).json({ message: 'start_date and end_date are required.' });
+    }
+
+    // Get all slots this screen offers
+    const slots = await db.query(
+      'SELECT slot FROM screen_slots WHERE screen_id = $1',
+      [req.params.id]
+    );
+
+    // For each slot check if there is a conflict in the requested date range
+    const availability = await Promise.all(
+      slots.rows.map(async ({ slot }) => {
+        const conflict = await db.query(
+          'SELECT check_booking_conflict($1, $2, $3::DATE, $4::DATE)',
+          [req.params.id, slot, start_date, end_date]
+        );
+        return {
+          slot,
+          available: !conflict.rows[0].check_booking_conflict,
+        };
+      })
+    );
+
+    res.json(availability);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

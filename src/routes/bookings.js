@@ -12,34 +12,36 @@ router.post('/', auth, async (req, res) => {
 
     const { screen_id, slot, start_date, end_date, days, subtotal, commission, total } = req.body;
 
+    // Check screen exists
     const screen = await db.query('SELECT * FROM screens WHERE id = $1', [screen_id]);
-    if (screen.rows.length === 0)  return res.status(404).json({ message: 'Screen not found.' });
-    if (!screen.rows[0].available) return res.status(400).json({ message: 'Screen is not available.' });
+    if (screen.rows.length === 0) return res.status(404).json({ message: 'Screen not found.' });
 
-// Check for date overlap on same screen and slot
-const conflict = await db.query(
-  `SELECT id FROM bookings
-   WHERE screen_id = $1
-   AND slot = $2
-   AND status NOT IN ('cancelled')
-   AND start_date <= $4
-   AND end_date >= $3`,
-  [screen_id, slot, start_date, end_date]
-);
-if (conflict.rows.length > 0) {
-  return res.status(400).json({
-    message: 'This slot is already booked for those dates. Please choose different dates or a different slot.'
-  });
-}
-
-    if (slotCheck.rows.length === 0) {
-      return res.status(400).json({ message: 'This time slot has already been booked.' });
+    // Check slot exists for this screen
+    const slotExists = await db.query(
+      'SELECT * FROM screen_slots WHERE screen_id = $1 AND slot = $2',
+      [screen_id, slot]
+    );
+    if (slotExists.rows.length === 0) {
+      return res.status(400).json({ message: 'Invalid slot for this screen.' });
     }
 
-    // Create booking as pending
+    // Check for date conflict — this is the core double booking prevention
+    const conflict = await db.query(
+      'SELECT check_booking_conflict($1, $2, $3::DATE, $4::DATE)',
+      [screen_id, slot, start_date, end_date]
+    );
+    if (conflict.rows[0].check_booking_conflict) {
+      return res.status(409).json({
+        message: 'This slot is already booked for the selected dates. Please choose different dates or a different slot.'
+      });
+    }
+
+    // No conflict — create the booking
     const result = await db.query(
-      'INSERT INTO bookings (screen_id, advertiser_id, slot, start_date, end_date, days, subtotal, commission, total, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *',
-      [screen_id, req.user.id, slot, start_date, end_date, days, subtotal, commission, total, 'pending']
+      `INSERT INTO bookings
+        (screen_id, advertiser_id, slot, start_date, end_date, days, subtotal, commission, total, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending') RETURNING *`,
+      [screen_id, req.user.id, slot, start_date, end_date, days, subtotal, commission, total]
     );
 
     res.status(201).json(result.rows[0]);
