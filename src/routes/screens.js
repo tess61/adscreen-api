@@ -75,4 +75,39 @@ router.patch('/:id', auth, async (req, res) => {
   }
 });
 
+// GET /api/screens/:id/slots — get available slots for a screen
+router.get('/:id/slots', async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT * FROM screen_slots WHERE screen_id = $1 ORDER BY created_at ASC',
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/screens/:id/slots — add slots when listing a screen
+router.post('/:id/slots', auth, async (req, res) => {
+  try {
+    const { slots } = req.body; // array of slot strings
+    const screen = await db.query('SELECT * FROM screens WHERE id = $1', [req.params.id]);
+    if (screen.rows.length === 0) return res.status(404).json({ message: 'Screen not found.' });
+    if (screen.rows[0].owner_id !== req.user.id) return res.status(403).json({ message: 'Not authorized.' });
+
+    // Delete existing slots and re-insert
+    await db.query('DELETE FROM screen_slots WHERE screen_id = $1', [req.params.id]);
+    for (const slot of slots) {
+      await db.query(
+        'INSERT INTO screen_slots (screen_id, slot) VALUES ($1, $2)',
+        [req.params.id, slot]
+      );
+    }
+    res.json({ message: 'Slots updated.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;
