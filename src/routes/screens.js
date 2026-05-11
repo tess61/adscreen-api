@@ -82,12 +82,33 @@ router.get('/:id', async (req, res) => {
 // POST /api/screens — create screen (owners only)
 router.post('/', auth, async (req, res) => {
   try {
-    const { name, location, lat, lng, price, size, resolution, traffic, description } = req.body;
+    const {
+      name, location, lat, lng, price,
+      size, resolution, traffic, description,
+      venue_type, orientation, image_url
+    } = req.body;
+
     const result = await db.query(
-      'INSERT INTO screens (name, location, lat, lng, price, size, resolution, traffic, description, owner_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *',
-      [name, location, lat, lng, price, size, resolution, traffic, description, req.user.id]
+      `INSERT INTO screens
+        (name, location, lat, lng, price, size, resolution,
+         traffic, description, venue_type, orientation, image_url, owner_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      [name, location, lat, lng, price, size, resolution,
+       traffic, description, venue_type, orientation, image_url, req.user.id]
     );
     res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+const { upload } = require('../cloudinary');
+
+// POST /api/screens/upload-image — upload screen photo
+router.post('/upload-image', auth, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No image provided.' });
+    res.json({ image_url: req.file.path });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
