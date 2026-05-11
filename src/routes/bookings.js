@@ -52,6 +52,28 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
+// GET /api/bookings/my-screens — bookings on owner's screens
+router.get('/my-screens', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner') {
+      return res.status(403).json({ message: 'Not authorized.' });
+    }
+    const result = await db.query(
+      `SELECT b.*, s.name AS screen_name, s.location,
+              u.name AS advertiser_name, u.company AS advertiser_company
+       FROM bookings b
+       JOIN screens s ON b.screen_id = s.id
+       JOIN users u ON b.advertiser_id = u.id
+       WHERE s.owner_id = $1
+       ORDER BY b.created_at DESC`,
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // GET /api/bookings/my — logged-in user's bookings
 router.get('/my', auth, async (req, res) => {
   try {
