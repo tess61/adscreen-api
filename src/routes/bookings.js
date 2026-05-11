@@ -16,11 +16,22 @@ router.post('/', auth, async (req, res) => {
     if (screen.rows.length === 0)  return res.status(404).json({ message: 'Screen not found.' });
     if (!screen.rows[0].available) return res.status(400).json({ message: 'Screen is not available.' });
 
-    // Check slot is still available
-    const slotCheck = await db.query(
-      'SELECT * FROM screen_slots WHERE screen_id = $1 AND slot = $2 AND available = TRUE',
-      [screen_id, slot]
-    );
+// Check for date overlap on same screen and slot
+const conflict = await db.query(
+  `SELECT id FROM bookings
+   WHERE screen_id = $1
+   AND slot = $2
+   AND status NOT IN ('cancelled')
+   AND start_date <= $4
+   AND end_date >= $3`,
+  [screen_id, slot, start_date, end_date]
+);
+if (conflict.rows.length > 0) {
+  return res.status(400).json({
+    message: 'This slot is already booked for those dates. Please choose different dates or a different slot.'
+  });
+}
+
     if (slotCheck.rows.length === 0) {
       return res.status(400).json({ message: 'This time slot has already been booked.' });
     }
@@ -30,21 +41,6 @@ router.post('/', auth, async (req, res) => {
       'INSERT INTO bookings (screen_id, advertiser_id, slot, start_date, end_date, days, subtotal, commission, total, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *',
       [screen_id, req.user.id, slot, start_date, end_date, days, subtotal, commission, total, 'pending']
     );
-
-    // Mark slot as unavailable so no one else can book it while pending
-    await db.query(
-      'UPDATE screen_slots SET available = FALSE WHERE screen_id = $1 AND slot = $2',
-      [screen_id, slot]
-    );
-
-    // If all slots taken mark screen unavailable
-    const remaining = await db.query(
-      'SELECT * FROM screen_slots WHERE screen_id = $1 AND available = TRUE',
-      [screen_id]
-    );
-    if (remaining.rows.length === 0) {
-      await db.query('UPDATE screens SET available = FALSE WHERE id = $1', [screen_id]);
-    }
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -142,18 +138,6 @@ router.patch('/:id/reject', auth, async (req, res) => {
     await db.query(
       'UPDATE bookings SET status = $1 WHERE id = $2',
       ['cancelled', req.params.id]
-    );
-
-    // Restore the slot so others can book it
-    await db.query(
-      'UPDATE screen_slots SET available = TRUE WHERE screen_id = $1 AND slot = $2',
-      [booking.rows[0].screen_id, booking.rows[0].slot]
-    );
-
-    // Restore screen availability
-    await db.query(
-      'UPDATE screens SET available = TRUE WHERE id = $1',
-      [booking.rows[0].screen_id]
     );
 
     res.json({ message: 'Booking rejected. Slot is now available again.' });
