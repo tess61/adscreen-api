@@ -6,11 +6,15 @@ const auth    = require('../middleware/auth');
 // POST /api/bookings — create booking
 router.post('/', auth, async (req, res) => {
   try {
+    if (req.user.role === 'owner') {
+      return res.status(403).json({ message: 'Screen owners cannot make bookings. Please use an advertiser account.' });
+    }
+
     const { screen_id, slot, start_date, end_date, days, subtotal, commission, total } = req.body;
 
     const screen = await db.query('SELECT * FROM screens WHERE id = $1', [screen_id]);
-    if (screen.rows.length === 0)    return res.status(404).json({ message: 'Screen not found.' });
-    if (!screen.rows[0].available)   return res.status(400).json({ message: 'Screen is not available.' });
+    if (screen.rows.length === 0)  return res.status(404).json({ message: 'Screen not found.' });
+    if (!screen.rows[0].available) return res.status(400).json({ message: 'Screen is not available.' });
 
     const result = await db.query(
       'INSERT INTO bookings (screen_id, advertiser_id, slot, start_date, end_date, days, subtotal, commission, total) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
