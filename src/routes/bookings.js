@@ -165,12 +165,6 @@ router.patch('/:id/complete', auth, async (req, res) => {
       ['completed', req.params.id]
     );
 
-    // Restore the slot for future bookings
-    await db.query(
-      'UPDATE screen_slots SET available = TRUE WHERE screen_id = $1 AND slot = $2',
-      [booking.rows[0].screen_id, booking.rows[0].slot]
-    );
-
     await db.query(
       'UPDATE screens SET available = TRUE WHERE id = $1',
       [booking.rows[0].screen_id]
