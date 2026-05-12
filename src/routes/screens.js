@@ -6,9 +6,44 @@ const auth    = require('../middleware/auth');
 // GET /api/screens — all screens (public)
 router.get('/', async (req, res) => {
   try {
-    const result = await db.query(
-      'SELECT s.*, u.name AS owner_name, u.company AS owner_company FROM screens s LEFT JOIN users u ON s.owner_id = u.id ORDER BY s.created_at DESC'
-    );
+    const { search, venue_type, min_price, max_price, available } = req.query;
+
+    let query  = `
+      SELECT s.*, u.name AS owner_name, u.company AS owner_company
+      FROM screens s
+      LEFT JOIN users u ON s.owner_id = u.id
+      WHERE 1=1
+    `;
+    const params = [];
+    let   idx           = 1;
+
+    if (search) {
+      query += ` AND (s.name ILIKE $${idx} OR s.location ILIKE $${idx})`;
+      params.push(`%${search}%`);
+      idx++;
+    }
+    if (venue_type) {
+      query += ` AND s.venue_type = $${idx}`;
+      params.push(venue_type);
+      idx++;
+    }
+    if (min_price) {
+      query += ` AND s.price >= $${idx}`;
+      params.push(Number(min_price));
+      idx++;
+    }
+    if (max_price) {
+      query += ` AND s.price <= $${idx}`;
+      params.push(Number(max_price));
+      idx++;
+    }
+    if (available === 'true') {
+      query += ` AND s.available = true`;
+    }
+
+    query += ` ORDER BY s.created_at DESC`;
+
+    const result = await db.query(query, params);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ message: err.message });
