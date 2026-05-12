@@ -50,27 +50,66 @@ router.get('/:id/availability', async (req, res) => {
       return res.status(400).json({ message: 'start_date and end_date are required.' });
     }
 
-    // Get all slots this screen offers
     const slots = await db.query(
       'SELECT slot FROM screen_slots WHERE screen_id = $1',
       [req.params.id]
     );
 
-    // For each slot check if there is a conflict in the requested date range
     const availability = await Promise.all(
       slots.rows.map(async ({ slot }) => {
         const conflict = await db.query(
           'SELECT check_booking_conflict($1, $2, $3::DATE, $4::DATE)',
           [req.params.id, slot, start_date, end_date]
         );
-        return {
-          slot,
-          available: !conflict.rows[0].check_booking_conflict,
-        };
+
+        const hasConflict = conflict.rows[0].check_booking_conflict;
+
+        // If conflict find the next available date after all bookings for this slot
+        let next_available = null;
+        if (hasConflict) {
+          const next = await db.query(
+            `SELECT MAX(end_date) + INTERVAL '1 day' AS next_date
+             FROM bookings
+             WHERE screen_id = $1
+               AND slot      = $2
+               AND status    IN ('pending', 'active')
+               AND end_date  >= $3::DATE`,
+            [req.params.id, slot, start_date]
+          );
+          next_available = next.rows[0]?.next_date ?? null;
+        }
+
+        return { slot, available: !hasConflict, next_available };
       })
     );
 
     res.json(availability);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/screens/:id/blocked-dates?slot=Morning
+router.get('/:id/blocked-dates', async (req, res) => {
+  try {
+    const { slot } = req.query;
+    if (!slot) return res.status(400).json({ message: 'slot is required.' });
+
+    const result = await db.query(
+      `SELECT start_date, end_date
+       FROM bookings
+       WHERE screen_id = $1
+         AND slot      = $2
+         AND status    IN ('pending', 'active')
+       ORDER BY start_date ASC`,
+      [req.params.id, slot]
+    );
+
+    // Return array of blocked date ranges
+    res.json(result.rows.map(r => ({
+      start: r.start_date,
+      end:   r.end_date,
+    })));
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -146,6 +185,7 @@ router.post('/upload-image', auth, upload.single('image'), async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
 
 // PATCH /api/screens/:id — update screen (owner only)
 router.patch('/:id', auth, async (req, res) => {
