@@ -8,6 +8,7 @@ const { upload } = require('../cloudinary');
 
 // POST /api/bookings — create booking (advertisers only)
 router.post('/', auth, async (req, res) => {
+  const client = await db.connect();
   try {
     if (req.user.role === 'owner') {
       return res.status(403).json({ message: 'Screen owners cannot make bookings.' });
@@ -15,58 +16,77 @@ router.post('/', auth, async (req, res) => {
 
     const { screen_id, slot, start_date, end_date, days, subtotal, commission, total } = req.body;
 
-    // Check screen exists
-    const screen = await db.query('SELECT * FROM screens WHERE id = $1', [screen_id]);
-    if (screen.rows.length === 0) return res.status(404).json({ message: 'Screen not found.' });
+    // Start transaction — locks the check and insert as one atomic operation
+    await client.query('BEGIN');
 
-    // Check slot exists for this screen
-    const slotExists = await db.query(
+    // Lock the screen row to prevent concurrent bookings
+    const screen = await client.query(
+      'SELECT * FROM screens WHERE id = $1 FOR UPDATE',
+      [screen_id]
+    );
+    if (screen.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Screen not found.' });
+    }
+
+    // Check slot exists
+    const slotExists = await client.query(
       'SELECT * FROM screen_slots WHERE screen_id = $1 AND slot = $2',
       [screen_id, slot]
     );
     if (slotExists.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ message: 'Invalid slot for this screen.' });
     }
 
-    // Check for date conflict — this is the core double booking prevention
-    const conflict = await db.query(
+    // Check conflict inside the transaction
+    const conflict = await client.query(
       'SELECT check_booking_conflict($1, $2, $3::DATE, $4::DATE)',
       [screen_id, slot, start_date, end_date]
     );
     if (conflict.rows[0].check_booking_conflict) {
+      await client.query('ROLLBACK');
       return res.status(409).json({
         message: 'This slot is already booked for the selected dates. Please choose different dates or a different slot.'
       });
     }
 
-    // No conflict — create the booking
-    const result = await db.query(
+    // Create booking
+    const result = await client.query(
       `INSERT INTO bookings
         (screen_id, advertiser_id, slot, start_date, end_date, days, subtotal, commission, total, status)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending') RETURNING *`,
       [screen_id, req.user.id, slot, start_date, end_date, days, subtotal, commission, total]
     );
 
-    // Notify screen owner about new booking
-    const ownerData = await db.query(
-      `SELECT u.push_token, s.name AS screen_name
-      FROM screens s
-      JOIN users u ON s.owner_id = u.id
-      WHERE s.id = $1`,
-      [screen_id]
-    );
-    if (ownerData.rows.length > 0) {
-      await sendPushNotification(
-        ownerData.rows[0].push_token,
-        '📋 New booking request',
-        `Someone wants to book ${ownerData.rows[0].screen_name}. Review and approve it in your bookings tab.`,
-        { bookingId: result.rows[0].id, type: 'new_booking' }
+    await client.query('COMMIT');
+
+    // Notify owner (outside transaction)
+    try {
+      const ownerData = await db.query(
+        `SELECT u.push_token, s.name AS screen_name
+         FROM screens s JOIN users u ON s.owner_id = u.id
+         WHERE s.id = $1`,
+        [screen_id]
       );
+      if (ownerData.rows.length > 0) {
+        await sendPushNotification(
+          ownerData.rows[0].push_token,
+          '📋 New booking request',
+          `Someone wants to book ${ownerData.rows[0].screen_name}.`,
+          { bookingId: result.rows[0].id, type: 'new_booking' }
+        );
+      }
+    } catch (notifErr) {
+      console.error('Notification error:', notifErr);
     }
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK');
     res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
   }
 });
 
