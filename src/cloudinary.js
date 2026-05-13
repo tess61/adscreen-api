@@ -11,10 +11,18 @@ cloudinary.config({
 
 const storage = new CloudinaryStorage({
   cloudinary,
-  params: {
-    folder:         'adscreen/screens',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-    transformation: [{ width: 1200, height: 800, crop: 'limit', quality: 'auto' }],
+  params: async (req, file) => {
+    const isVideo = file.mimetype.startsWith('video');
+    return {
+      folder:          'adscreen/creatives',
+      resource_type:   isVideo ? 'video' : 'image',
+      allowed_formats: isVideo
+        ? ['mp4', 'mov', 'avi', 'mkv']
+        : ['jpg', 'jpeg', 'png', 'webp', 'gif'],
+      transformation: isVideo
+        ? [{ quality: 'auto' }]
+        : [{ width: 1920, height: 1080, crop: 'limit', quality: 'auto' }],
+    };
   },
 });
 

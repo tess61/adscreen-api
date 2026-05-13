@@ -3,6 +3,8 @@ const router  = express.Router();
 const db      = require('../db');
 const auth    = require('../middleware/auth');
 const { sendPushNotification } = require('../notifications');
+const { upload } = require('../cloudinary');
+
 
 // POST /api/bookings — create booking (advertisers only)
 router.post('/', auth, async (req, res) => {
@@ -214,6 +216,33 @@ router.patch('/:id/complete', auth, async (req, res) => {
     );
 
     res.json({ message: 'Booking marked as completed.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/bookings/:id/creative — upload ad creative
+router.post('/:id/creative', auth, upload.single('creative'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No file provided.' });
+
+    // Verify this booking belongs to the advertiser
+    const booking = await db.query(
+      'SELECT * FROM bookings WHERE id = $1 AND advertiser_id = $2',
+      [req.params.id, req.user.id]
+    );
+    if (booking.rows.length === 0) {
+      return res.status(404).json({ message: 'Booking not found.' });
+    }
+
+    const creative_type = req.file.mimetype.startsWith('video') ? 'video' : 'image';
+
+    await db.query(
+      'UPDATE bookings SET creative_url = $1, creative_type = $2 WHERE id = $3',
+      [req.file.path, creative_type, req.params.id]
+    );
+
+    res.json({ creative_url: req.file.path, creative_type });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
