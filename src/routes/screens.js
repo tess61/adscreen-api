@@ -236,10 +236,22 @@ router.patch('/:id', auth, async (req, res) => {
       return res.status(403).json({ message: 'Not authorized.' });
     }
 
+    const existing = screen.rows[0];
+
+    // Use existing values as fallback for anything not sent
     const {
-      name, location, lat, lng, price, size,
-      resolution, traffic, description,
-      venue_type, orientation, available
+      name        = existing.name,
+      location    = existing.location,
+      lat         = existing.lat,
+      lng         = existing.lng,
+      price       = existing.price,
+      size        = existing.size,
+      resolution  = existing.resolution,
+      traffic     = existing.traffic,
+      description = existing.description,
+      venue_type  = existing.venue_type,
+      orientation = existing.orientation,
+      available   = existing.available,  // preserve existing available status
     } = req.body;
 
     const result = await db.query(
