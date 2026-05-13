@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 const auth    = require('../middleware/auth');
+const { sendPushNotification } = require('../notifications');
 
 // POST /api/bookings — create booking (advertisers only)
 router.post('/', auth, async (req, res) => {
@@ -43,6 +44,23 @@ router.post('/', auth, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending') RETURNING *`,
       [screen_id, req.user.id, slot, start_date, end_date, days, subtotal, commission, total]
     );
+
+    // Notify screen owner about new booking
+    const ownerData = await db.query(
+      `SELECT u.push_token, s.name AS screen_name
+      FROM screens s
+      JOIN users u ON s.owner_id = u.id
+      WHERE s.id = $1`,
+      [screen_id]
+    );
+    if (ownerData.rows.length > 0) {
+      await sendPushNotification(
+        ownerData.rows[0].push_token,
+        '📋 New booking request',
+        `Someone wants to book ${ownerData.rows[0].screen_name}. Review and approve it in your bookings tab.`,
+        { bookingId: result.rows[0].id, type: 'new_booking' }
+      );
+    }
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -97,20 +115,30 @@ router.patch('/:id/approve', auth, async (req, res) => {
       return res.status(403).json({ message: 'Not authorized.' });
     }
 
-    // Verify this booking belongs to owner's screen
     const booking = await db.query(
-      `SELECT b.*, s.owner_id FROM bookings b
+      `SELECT b.*, s.owner_id, s.name AS screen_name,
+              u.push_token AS advertiser_token
+       FROM bookings b
        JOIN screens s ON b.screen_id = s.id
+       JOIN users   u ON b.advertiser_id = u.id
        WHERE b.id = $1`,
       [req.params.id]
     );
-    if (booking.rows.length === 0)  return res.status(404).json({ message: 'Booking not found.' });
+    if (booking.rows.length === 0) return res.status(404).json({ message: 'Booking not found.' });
     if (booking.rows[0].owner_id !== req.user.id) return res.status(403).json({ message: 'Not authorized.' });
     if (booking.rows[0].status !== 'pending') return res.status(400).json({ message: 'Booking is not pending.' });
 
     const result = await db.query(
       'UPDATE bookings SET status = $1 WHERE id = $2 RETURNING *',
       ['active', req.params.id]
+    );
+
+    // Notify advertiser
+    await sendPushNotification(
+      booking.rows[0].advertiser_token,
+      '✅ Booking approved!',
+      `Your booking for ${booking.rows[0].screen_name} has been approved. Your campaign is now active.`,
+      { bookingId: req.params.id, type: 'booking_approved' }
     );
 
     res.json(result.rows[0]);
@@ -127,22 +155,37 @@ router.patch('/:id/reject', auth, async (req, res) => {
     }
 
     const booking = await db.query(
-      `SELECT b.*, s.owner_id FROM bookings b
+      `SELECT b.*, s.owner_id, s.name AS screen_name,
+              u.push_token AS advertiser_token
+       FROM bookings b
        JOIN screens s ON b.screen_id = s.id
+       JOIN users   u ON b.advertiser_id = u.id
        WHERE b.id = $1`,
       [req.params.id]
     );
-    if (booking.rows.length === 0)  return res.status(404).json({ message: 'Booking not found.' });
+    if (booking.rows.length === 0) return res.status(404).json({ message: 'Booking not found.' });
     if (booking.rows[0].owner_id !== req.user.id) return res.status(403).json({ message: 'Not authorized.' });
-    if (booking.rows[0].status !== 'pending') return res.status(400).json({ message: 'Booking is not pending.' });
+    if (booking.rows[0].status !== 'pending') return res.status(400).json({ message: 'Only pending bookings can be rejected.' });
 
-    // Cancel the booking
     await db.query(
       'UPDATE bookings SET status = $1 WHERE id = $2',
       ['cancelled', req.params.id]
     );
 
-    res.json({ message: 'Booking rejected. Slot is now available again.' });
+    await db.query(
+      'UPDATE screens SET available = TRUE WHERE id = $1',
+      [booking.rows[0].screen_id]
+    );
+
+    // Notify advertiser
+    await sendPushNotification(
+      booking.rows[0].advertiser_token,
+      '❌ Booking rejected',
+      `Your booking for ${booking.rows[0].screen_name} was not approved. The dates are now available for rebooking.`,
+      { bookingId: req.params.id, type: 'booking_rejected' }
+    );
+
+    res.json({ message: 'Booking rejected.' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

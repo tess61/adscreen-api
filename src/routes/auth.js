@@ -3,6 +3,7 @@ const router  = express.Router();
 const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
 const db      = require('../db');
+const auth = require('../middleware/auth');
 
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
@@ -47,4 +48,20 @@ router.post('/login', async (req, res) => {
   }
 });
 
+
+// POST /api/auth/push-token — save device push token
+router.post('/push-token', auth, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ message: 'Token required.' });
+
+    await db.query(
+      'UPDATE users SET push_token = $1 WHERE id = $2',
+      [token, req.user.id]
+    );
+    res.json({ message: 'Push token saved.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 module.exports = router;
