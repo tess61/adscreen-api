@@ -186,4 +186,17 @@ router.post('/avatar', auth, upload.single('avatar'), async (req, res) => {
   }
 });
 
+// DELETE /api/auth/avatar — remove profile photo
+router.delete('/avatar', auth, async (req, res) => {
+  try {
+    await db.query(
+      'UPDATE users SET avatar_url = NULL WHERE id = $1',
+      [req.user.id]
+    );
+    res.json({ message: 'Avatar removed.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;
