@@ -64,4 +64,70 @@ router.post('/push-token', auth, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
+// GET /api/auth/me — get current user profile
+router.get('/me', auth, async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT id, name, email, role, company, phone FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ message: 'User not found.' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// PATCH /api/auth/me — update profile
+router.patch('/me', auth, async (req, res) => {
+  try {
+    const { name, company, phone } = req.body;
+
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ message: 'Name is required.' });
+    }
+
+    const result = await db.query(
+      `UPDATE users SET name=$1, company=$2, phone=$3 WHERE id=$4
+       RETURNING id, name, email, role, company, phone`,
+      [name.trim(), company, phone, req.user.id]
+    );
+
+    // Update stored user in response so app can sync
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// PATCH /api/auth/change-password
+router.patch('/change-password', auth, async (req, res) => {
+  try {
+    const { current_password, new_password } = req.body;
+
+    if (!current_password || !new_password) {
+      return res.status(400).json({ message: 'Both current and new password are required.' });
+    }
+    if (new_password.length < 8) {
+      return res.status(400).json({ message: 'New password must be at least 8 characters.' });
+    }
+
+    // Get current password hash
+    const user = await db.query('SELECT password FROM users WHERE id = $1', [req.user.id]);
+    if (user.rows.length === 0) return res.status(404).json({ message: 'User not found.' });
+
+    // Verify current password
+    const match = await bcrypt.compare(current_password, user.rows[0].password);
+    if (!match) return res.status(400).json({ message: 'Current password is incorrect.' });
+
+    // Hash and save new password
+    const hashed = await bcrypt.hash(new_password, 10);
+    await db.query('UPDATE users SET password=$1 WHERE id=$2', [hashed, req.user.id]);
+
+    res.json({ message: 'Password changed successfully.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 module.exports = router;
