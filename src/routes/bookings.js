@@ -58,6 +58,27 @@ router.post('/', auth, async (req, res) => {
     }
 
     const { screen_id, slot, start_date, end_date, days, subtotal, commission, total } = req.body;
+    // Check if slot has already passed for today
+        const today = new Date().toISOString().split('T')[0];
+        if (start_date === today) {
+          const now  = new Date();
+          const hour = now.getHours();
+
+          const slotEndHours = {
+            'Morning (6am–12pm)':   12,
+            'Afternoon (12pm–6pm)': 18,
+            'Evening (6pm–12am)':   24,
+            'Full day':             24,
+          };
+
+          const endHour = slotEndHours[slot];
+          if (endHour !== undefined && hour >= endHour) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({
+              message: `The ${slot} slot has already passed for today. Please choose a future slot or a different date.`
+            });
+          }
+        }
 
     await client.query('BEGIN');
 
