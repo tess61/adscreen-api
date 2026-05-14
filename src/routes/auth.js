@@ -69,7 +69,9 @@ router.post('/push-token', auth, async (req, res) => {
 router.get('/me', auth, async (req, res) => {
   try {
     const result = await db.query(
-      'SELECT id, name, email, role, company, phone FROM users WHERE id = $1',
+      `SELECT id, name, email, role, company, phone, 
+              telebirr_number, telebirr_name 
+       FROM users WHERE id = $1`,
       [req.user.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ message: 'User not found.' });
@@ -126,6 +128,42 @@ router.patch('/change-password', auth, async (req, res) => {
     await db.query('UPDATE users SET password=$1 WHERE id=$2', [hashed, req.user.id]);
 
     res.json({ message: 'Password changed successfully.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// PATCH /api/auth/payment — save Telebirr details
+router.patch('/payment', auth, async (req, res) => {
+  try {
+    const { telebirr_number, telebirr_name } = req.body;
+
+    if (!telebirr_number) {
+      return res.status(400).json({ message: 'Telebirr number is required.' });
+    }
+
+    // Basic Ethiopian phone number validation
+    const cleaned = telebirr_number.replace(/\s/g, '');
+    const validFormats = [
+      /^09\d{8}$/,        // 09XXXXXXXX
+      /^\+2519\d{8}$/,    // +2519XXXXXXXX
+      /^2519\d{8}$/,      // 2519XXXXXXXX
+    ];
+    const isValid = validFormats.some(f => f.test(cleaned));
+    if (!isValid) {
+      return res.status(400).json({ 
+        message: 'Please enter a valid Ethiopian phone number (e.g. 0912345678).' 
+      });
+    }
+
+    const result = await db.query(
+      `UPDATE users SET telebirr_number=$1, telebirr_name=$2 WHERE id=$3
+       RETURNING id, name, email, role, company, phone, telebirr_number, telebirr_name`,
+      [cleaned, telebirr_name, req.user.id]
+    );
+
+    // Update SecureStore via response
+    res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
