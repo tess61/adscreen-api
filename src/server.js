@@ -1,6 +1,7 @@
 const express = require('express');
 const cors    = require('cors');
 require('dotenv').config();
+const { startCronJobs } = require('./cron');
 
 const app = express();
 app.use(cors());
@@ -18,4 +19,5 @@ app.get('/', (req, res) => {
 
 app.listen(process.env.PORT || 5000, '0.0.0.0', () => {
   console.log(`✅ Server running on port ${process.env.PORT || 5000}`);
+  startCronJobs();
 });
