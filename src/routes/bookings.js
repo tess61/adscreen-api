@@ -576,4 +576,15 @@ router.post('/:id/creative', auth, async (req, res) => {
   });
 });
 
+// POST /api/bookings/run-autocomplete — manual trigger (admin only, remove after testing)
+router.post('/run-autocomplete', async (req, res) => {
+  try {
+    const { completeExpiredBookings } = require('../cron');
+    await completeExpiredBookings();
+    res.json({ message: 'Auto-complete job ran successfully.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;
