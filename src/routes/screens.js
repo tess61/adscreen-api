@@ -317,4 +317,51 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
+// PATCH /api/screens/:id/toggle-availability
+router.patch('/:id/toggle-availability', auth, async (req, res) => {
+  try {
+    const screen = await db.query(
+      'SELECT * FROM screens WHERE id = $1',
+      [req.params.id]
+    );
+    if (screen.rows.length === 0) {
+      return res.status(404).json({ message: 'Screen not found.' });
+    }
+    if (screen.rows[0].owner_id !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized.' });
+    }
+
+    // Check for active bookings before marking unavailable
+    if (screen.rows[0].available) {
+      const activeBookings = await db.query(
+        `SELECT COUNT(*) FROM bookings
+         WHERE screen_id = $1
+           AND status IN ('pending', 'active')`,
+        [req.params.id]
+      );
+      if (parseInt(activeBookings.rows[0].count) > 0) {
+        return res.status(400).json({
+          message: 'Cannot mark as unavailable — this screen has pending or active bookings. Resolve them first.'
+        });
+      }
+    }
+
+    const result = await db.query(
+      `UPDATE screens
+       SET available = NOT available
+       WHERE id = $1
+       RETURNING id, name, available`,
+      [req.params.id]
+    );
+
+    const updated = result.rows[0];
+    res.json({
+      message:   updated.available ? 'Screen is now available.' : 'Screen marked as unavailable.',
+      available: updated.available,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;
