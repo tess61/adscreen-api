@@ -203,16 +203,26 @@ router.post('/', auth, async (req, res) => {
     const {
       name, location, lat, lng, price,
       size, resolution, traffic, description,
-      venue_type, orientation, image_url
+      venue_type, orientation, image_url,
+      pricing_model,
+      discount_7days, discount_30days,
+      discount_90days, discount_180days,
     } = req.body;
 
     const result = await db.query(
       `INSERT INTO screens
         (name, location, lat, lng, price, size, resolution,
-         traffic, description, venue_type, orientation, image_url, owner_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+         traffic, description, venue_type, orientation, image_url,
+         owner_id, pricing_model,
+         discount_7days, discount_30days,
+         discount_90days, discount_180days)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       RETURNING *`,
       [name, location, lat, lng, price, size, resolution,
-       traffic, description, venue_type, orientation, image_url, req.user.id]
+       traffic, description, venue_type, orientation, image_url,
+       req.user.id, pricing_model || 'flat',
+       discount_7days  || 0, discount_30days  || 0,
+       discount_90days || 0, discount_180days || 0]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -237,19 +247,12 @@ router.post('/upload-image', auth, upload.single('image'), async (req, res) => {
 router.patch('/:id', auth, async (req, res) => {
   try {
     const screen = await db.query(
-      'SELECT * FROM screens WHERE id = $1',
-      [req.params.id]
+      'SELECT * FROM screens WHERE id = $1', [req.params.id]
     );
-    if (screen.rows.length === 0) {
-      return res.status(404).json({ message: 'Screen not found.' });
-    }
-    if (screen.rows[0].owner_id !== req.user.id) {
-      return res.status(403).json({ message: 'Not authorized.' });
-    }
+    if (screen.rows.length === 0) return res.status(404).json({ message: 'Screen not found.' });
+    if (screen.rows[0].owner_id !== req.user.id) return res.status(403).json({ message: 'Not authorized.' });
 
     const existing = screen.rows[0];
-
-    // Use existing values as fallback for anything not sent
     const {
       name        = existing.name,
       location    = existing.location,
@@ -262,21 +265,29 @@ router.patch('/:id', auth, async (req, res) => {
       description = existing.description,
       venue_type  = existing.venue_type,
       orientation = existing.orientation,
-      available   = existing.available,  // preserve existing available status
+      available   = existing.available,
+      pricing_model    = existing.pricing_model,
+      discount_7days   = existing.discount_7days,
+      discount_30days  = existing.discount_30days,
+      discount_90days  = existing.discount_90days,
+      discount_180days = existing.discount_180days,
     } = req.body;
 
     const result = await db.query(
       `UPDATE screens SET
         name=$1, location=$2, lat=$3, lng=$4, price=$5,
         size=$6, resolution=$7, traffic=$8, description=$9,
-        venue_type=$10, orientation=$11, available=$12
-       WHERE id=$13 RETURNING *`,
-      [
-        name, location, lat, lng, price,
-        size, resolution, traffic, description,
-        venue_type, orientation, available,
-        req.params.id
-      ]
+        venue_type=$10, orientation=$11, available=$12,
+        pricing_model=$13, discount_7days=$14,
+        discount_30days=$15, discount_90days=$16,
+        discount_180days=$17
+       WHERE id=$18 RETURNING *`,
+      [name, location, lat, lng, price,
+       size, resolution, traffic, description,
+       venue_type, orientation, available,
+       pricing_model, discount_7days,
+       discount_30days, discount_90days,
+       discount_180days, req.params.id]
     );
     res.json(result.rows[0]);
   } catch (err) {
