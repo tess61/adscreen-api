@@ -92,8 +92,6 @@ router.get('/:id/availability', async (req, res) => {
 
     const availability = await Promise.all(
       slots.rows.map(async ({ slot }) => {
-        // Use the same conflict function that booking uses
-        // This now handles Full day conflicts automatically
         const conflict = await db.query(
           'SELECT check_booking_conflict($1, $2, $3::DATE, $4::DATE)',
           [req.params.id, slot, start_date, end_date]
@@ -101,22 +99,20 @@ router.get('/:id/availability', async (req, res) => {
 
         const hasConflict = conflict.rows[0].check_booking_conflict;
 
-        // Find next available date if blocked
         let next_available = null;
         if (hasConflict) {
-          // Find the latest end date of any conflicting booking
           const next = await db.query(
             `SELECT MAX(end_date) + INTERVAL '1 day' AS next_date
              FROM bookings
              WHERE screen_id = $1
                AND status    IN ('pending', 'active')
-               AND end_date  >= $2::DATE
+               AND end_date  >= CURRENT_DATE
                AND (
-                 slot = $3
-                 OR (slot = 'Full day' AND $3 != 'Full day')
-                 OR (slot != 'Full day' AND $3 = 'Full day')
+                 slot = $2
+                 OR (slot = 'Full day' AND $2 != 'Full day')
+                 OR (slot != 'Full day' AND $2 = 'Full day')
                )`,
-            [req.params.id, start_date, slot]
+            [req.params.id, slot]
           );
           next_available = next.rows[0]?.next_date ?? null;
         }
@@ -137,12 +133,12 @@ router.get('/:id/blocked-dates', async (req, res) => {
     const { slot } = req.query;
     if (!slot) return res.status(400).json({ message: 'slot is required.' });
 
-    // Get blocked ranges for this slot including Full day conflicts
     const result = await db.query(
       `SELECT start_date, end_date
        FROM bookings
        WHERE screen_id = $1
          AND status    IN ('pending', 'active')
+         AND end_date  >= CURRENT_DATE
          AND (
            slot = $2
            OR (slot = 'Full day' AND $2 != 'Full day')
