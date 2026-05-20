@@ -17,7 +17,7 @@ app.get('/', (req, res) => {
   res.json({ message: 'AdScreen API is running 🚀' });
 });
 
-app.listen(process.env.PORT || 5000, '0.0.0.0', () => {
-  console.log(`✅ Server running on port ${process.env.PORT || 5000}`);
+app.listen(process.env.PORT || 10000, '0.0.0.0', () => {
+  console.log(`✅ Server running on port ${process.env.PORT || 10000}`);
   startCronJobs();
 });
