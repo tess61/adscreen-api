@@ -107,5 +107,14 @@ function startCronJobs() {
 
   console.log('⏰ Cron jobs started — auto-complete runs every hour');
 }
+// Ping self every 14 minutes to prevent Render free tier spin down
+cron.schedule('*/14 * * * *', async () => {
+  try {
+    await fetch(`https://adscreen-api.onrender.com`);
+    console.log('⚡ Keep-alive ping sent');
+  } catch (err) {
+    console.error('Keep-alive ping failed:', err.message);
+  }
+});
 
 module.exports = { startCronJobs, completeExpiredBookings };
