@@ -623,4 +623,15 @@ router.post('/run-autocomplete', async (req, res) => {
   }
 });
 
+// POST /api/bookings/trigger-autocomplete — trigger auto-complete for testing (remove in production)
+router.post('/trigger-autocomplete', async (req, res) => {
+  try {
+    const { completeExpiredBookings } = require('../cron');
+    await completeExpiredBookings();
+    res.json({ message: 'Auto-complete ran successfully.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;
