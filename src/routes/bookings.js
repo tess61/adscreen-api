@@ -157,7 +157,7 @@ router.post('/', auth, async (req, res) => {
     const result = await client.query(
       `INSERT INTO bookings (
         screen_id, advertiser_id,
-        slot, spots_per_day, spot_duration_seconds, package_label,
+        slot || null, spots_per_day, spot_duration_seconds, package_label,
         start_date, end_date, days,
         subtotal, commission, total,
         status, paid_at,
