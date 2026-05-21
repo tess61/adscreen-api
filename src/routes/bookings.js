@@ -155,39 +155,36 @@ router.post('/', auth, async (req, res) => {
 
     // Create booking — handles both models
     const result = await client.query(
-      `INSERT INTO bookings (
-        screen_id, advertiser_id,
-        slot        || null,
-        spots_per_day        || null,
-        spot_duration_seconds || null,
-        package_label         || null,
-        start_date, end_date, days,
-        subtotal, commission, total,
-        status, paid_at,
-        platform_commission, owner_payout
-      ) VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
-        'pending',NOW(),$13,$14
-      ) RETURNING *`,
-      [
-        screen_id, req.user.id,
-        slot        || null,
-        spots_per_day        || null,
-        spot_duration_seconds || null,
-        package_label         || null,
-        start_date, end_date, days,
-        subtotal, commission, total,
-        Math.round(total * 0.10),
-        Math.round(total * 0.90),
-      ]
-    );
+  `INSERT INTO bookings (
+    screen_id, advertiser_id,
+    slot, spots_per_day, spot_duration_seconds, package_label,
+    start_date, end_date, days,
+    subtotal, commission, total,
+    status, paid_at,
+    platform_commission, owner_payout
+  ) VALUES (
+    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+    'pending',NOW(),$13,$14
+  ) RETURNING *`,
+  [
+    screen_id, req.user.id,
+    slot              || null,
+    spots_per_day     || null,
+    spot_duration_seconds || null,
+    package_label     || null,
+    start_date, end_date, days,
+    subtotal, commission, total,
+    Math.round(total * 0.10),
+    Math.round(total * 0.90),
+  ]
+);
 
     const booking = result.rows[0];
 
     // Deduct from wallet
     const description = isSpots
-      ? `Campaign for ${screen.rows[0].name} — ${package_label} (${spots_per_day} spots/day)`
-      : `Campaign for ${screen.rows[0].name} — ${slot}`;
+      ? `Campaign for ${screen.rows[0].name} - ${package_label} (${spots_per_day} spots/day)`
+      : `Campaign for ${screen.rows[0].name} - ${slot}`;
 
     await client.query(
       'SELECT deduct_wallet($1, $2, $3, $4, $5)',
