@@ -57,28 +57,16 @@ router.post('/', auth, async (req, res) => {
       return res.status(403).json({ message: 'Screen owners cannot make bookings.' });
     }
 
-    const { screen_id, slot, start_date, end_date, days, subtotal, commission, total } = req.body;
-    // Check if slot has already passed for today
-        const today = new Date().toISOString().split('T')[0];
-        if (start_date === today) {
-          const now  = new Date();
-          const hour = now.getHours();
-
-          const slotEndHours = {
-            'Morning (6am–12pm)':   12,
-            'Afternoon (12pm–6pm)': 18,
-            'Evening (6pm–12am)':   24,
-            'Full day':             24,
-          };
-
-          const endHour = slotEndHours[slot];
-          if (endHour !== undefined && hour >= endHour) {
-            await client.query('ROLLBACK');
-            return res.status(400).json({
-              message: `The ${slot} slot has already passed for today. Please choose a future slot or a different date.`
-            });
-          }
-        }
+    const {
+      screen_id,
+      // Spots model fields
+      spots_per_day, spot_duration_seconds, package_label,
+      // Timeslot model fields
+      slot,
+      // Common fields
+      start_date, end_date, days,
+      subtotal, commission, total,
+    } = req.body;
 
     await client.query('BEGIN');
 
@@ -87,14 +75,13 @@ router.post('/', auth, async (req, res) => {
       'SELECT balance FROM wallets WHERE user_id = $1 FOR UPDATE',
       [req.user.id]
     );
-
     const balance = wallet.rows.length > 0 ? Number(wallet.rows[0].balance) : 0;
     if (balance < total) {
       await client.query('ROLLBACK');
       return res.status(402).json({
-        message:  'Insufficient wallet balance.',
-        required: total,
-        balance:  balance,
+        message:   'Insufficient wallet balance.',
+        required:  total,
+        balance:   balance,
         shortfall: total - balance,
       });
     }
@@ -109,50 +96,99 @@ router.post('/', auth, async (req, res) => {
       return res.status(404).json({ message: 'Screen not found.' });
     }
 
-    // Check slot exists
-    const slotExists = await client.query(
-      'SELECT * FROM screen_slots WHERE screen_id = $1 AND slot = $2',
-      [screen_id, slot]
-    );
-    if (slotExists.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ message: 'Invalid slot for this screen.' });
+    const isSpots = screen.rows[0].booking_model === 'spots' || spots_per_day;
+
+    if (isSpots) {
+      // Spots conflict check
+      const conflict = await client.query(
+        'SELECT check_spots_conflict($1, $2::DATE, $3::DATE, $4)',
+        [screen_id, start_date, end_date, spots_per_day]
+      );
+      if (conflict.rows[0].check_spots_conflict) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          message: 'Not enough spots available for the selected dates. Choose fewer spots or different dates.',
+        });
+      }
+    } else {
+      // Timeslot — check slot passed for today
+      const today = new Date().toISOString().split('T')[0];
+      if (start_date === today && slot) {
+        const now  = new Date();
+        const hour = now.getHours();
+        const slotEndHours = {
+          'Morning (6am–12pm)':   12,
+          'Afternoon (12pm–6pm)': 18,
+          'Evening (6pm–12am)':   24,
+          'Full day':             24,
+        };
+        const endHour = slotEndHours[slot];
+        if (endHour !== undefined && hour >= endHour) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            message: `The ${slot} slot has already passed for today.`
+          });
+        }
+      }
+
+      // Timeslot conflict check
+      const slotExists = await client.query(
+        'SELECT * FROM screen_slots WHERE screen_id = $1 AND slot = $2',
+        [screen_id, slot]
+      );
+      if (slotExists.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ message: 'Invalid slot for this screen.' });
+      }
+
+      const conflict = await client.query(
+        'SELECT check_booking_conflict($1, $2, $3::DATE, $4::DATE)',
+        [screen_id, slot, start_date, end_date]
+      );
+      if (conflict.rows[0].check_booking_conflict) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          message: 'This slot is already booked for the selected dates.',
+        });
+      }
     }
 
-    // Check date conflict
-    const conflict = await client.query(
-      'SELECT check_booking_conflict($1, $2, $3::DATE, $4::DATE)',
-      [screen_id, slot, start_date, end_date]
-    );
-    if (conflict.rows[0].check_booking_conflict) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({
-        message: 'This slot is already booked for the selected dates.',
-      });
-    }
-
-    // Create booking
+    // Create booking — handles both models
     const result = await client.query(
-      `INSERT INTO bookings
-        (screen_id, advertiser_id, slot, start_date, end_date,
-         days, subtotal, commission, total, status, paid_at,
-         platform_commission, owner_payout)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',NOW(),$10,$11)
-       RETURNING *`,
-      [screen_id, req.user.id, slot, start_date, end_date,
-       days, subtotal, commission, total,
-       Math.round(total * 0.10),
-       Math.round(total * 0.90)]
+      `INSERT INTO bookings (
+        screen_id, advertiser_id,
+        slot, spots_per_day, spot_duration_seconds, package_label,
+        start_date, end_date, days,
+        subtotal, commission, total,
+        status, paid_at,
+        platform_commission, owner_payout
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+        'pending',NOW(),$13,$14
+      ) RETURNING *`,
+      [
+        screen_id, req.user.id,
+        slot        || null,
+        spots_per_day        || null,
+        spot_duration_seconds || null,
+        package_label         || null,
+        start_date, end_date, days,
+        subtotal, commission, total,
+        Math.round(total * 0.10),
+        Math.round(total * 0.90),
+      ]
     );
 
     const booking = result.rows[0];
 
     // Deduct from wallet
+    const description = isSpots
+      ? `Campaign for ${screen.rows[0].name} — ${package_label} (${spots_per_day} spots/day)`
+      : `Campaign for ${screen.rows[0].name} — ${slot}`;
+
     await client.query(
       'SELECT deduct_wallet($1, $2, $3, $4, $5)',
-      [req.user.id, total, 'booking_payment',
-       `Booking for ${screen.rows[0].name} — ${slot}`,
-       booking.id]
+      [req.user.id, total, 'booking_payment', description, booking.id]
     );
 
     await client.query('COMMIT');
@@ -168,8 +204,8 @@ router.post('/', auth, async (req, res) => {
       if (ownerData.rows[0]?.push_token) {
         await sendPushNotification(
           ownerData.rows[0].push_token,
-          '📋 New booking request',
-          `Someone wants to book ${ownerData.rows[0].screen_name}.`,
+          '📋 New campaign request',
+          `Someone wants to run a campaign on ${ownerData.rows[0].screen_name}.`,
           { bookingId: booking.id, type: 'new_booking' }
         );
       }

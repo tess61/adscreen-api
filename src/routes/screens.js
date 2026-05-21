@@ -229,10 +229,59 @@ router.post('/', auth, async (req, res) => {
 const { upload } = require('../cloudinary');
 
 // POST /api/screens/upload-image — upload screen photo
-router.post('/upload-image', auth, upload.single('image'), async (req, res) => {
+router.post('/', auth, upload.single('image'), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ message: 'No image provided.' });
-    res.json({ image_url: req.file.path });
+    const {
+      name, location, lat, lng, description,
+      venue_type, orientation, size, resolution, traffic,
+      booking_model,
+      total_spots_per_day, spot_duration_seconds,
+      price_40spots, price_80spots, price_160spots,
+      pricing_model,
+      discount_7days,  discount_30days,
+      discount_90days, discount_180days,
+    } = req.body;
+
+    const image_url = req.file ? req.file.path : null;
+
+    if (!name || !location) {
+      return res.status(400).json({ message: 'Name and location are required.' });
+    }
+
+    const result = await db.query(
+      `INSERT INTO screens (
+        name, location, lat, lng, description,
+        venue_type, orientation, size, resolution, traffic,
+        image_url, owner_id, available,
+        booking_model,
+        total_spots_per_day, spot_duration_seconds,
+        price_40spots, price_80spots, price_160spots,
+        pricing_model,
+        discount_7days,  discount_30days,
+        discount_90days, discount_180days,
+        price
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+        $11,$12,true,$13,$14,$15,$16,$17,$18,
+        $19,$20,$21,$22,$23,$24
+      ) RETURNING *`,
+      [
+        name, location, lat, lng, description,
+        venue_type, orientation, size, resolution, traffic,
+        image_url, req.user.id,
+        booking_model      || 'spots',
+        total_spots_per_day || 160,
+        spot_duration_seconds || 15,
+        price_40spots  || null,
+        price_80spots  || null,
+        price_160spots || null,
+        pricing_model  || 'flat',
+        discount_7days   || 0, discount_30days  || 0,
+        discount_90days  || 0, discount_180days || 0,
+        price_80spots || 0, // use 80spots price as default price
+      ]
+    );
+    res.status(201).json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -245,45 +294,65 @@ router.patch('/:id', auth, async (req, res) => {
     const screen = await db.query(
       'SELECT * FROM screens WHERE id = $1', [req.params.id]
     );
-    if (screen.rows.length === 0) return res.status(404).json({ message: 'Screen not found.' });
-    if (screen.rows[0].owner_id !== req.user.id) return res.status(403).json({ message: 'Not authorized.' });
+    if (screen.rows.length === 0) {
+      return res.status(404).json({ message: 'Screen not found.' });
+    }
+    if (screen.rows[0].owner_id !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized.' });
+    }
 
-    const existing = screen.rows[0];
+    const e = screen.rows[0];
     const {
-      name        = existing.name,
-      location    = existing.location,
-      lat         = existing.lat,
-      lng         = existing.lng,
-      price       = existing.price,
-      size        = existing.size,
-      resolution  = existing.resolution,
-      traffic     = existing.traffic,
-      description = existing.description,
-      venue_type  = existing.venue_type,
-      orientation = existing.orientation,
-      available   = existing.available,
-      pricing_model    = existing.pricing_model,
-      discount_7days   = existing.discount_7days,
-      discount_30days  = existing.discount_30days,
-      discount_90days  = existing.discount_90days,
-      discount_180days = existing.discount_180days,
+      name        = e.name,
+      location    = e.location,
+      lat         = e.lat,
+      lng         = e.lng,
+      description = e.description,
+      venue_type  = e.venue_type,
+      orientation = e.orientation,
+      size        = e.size,
+      resolution  = e.resolution,
+      traffic     = e.traffic,
+      available   = e.available,
+      booking_model         = e.booking_model,
+      total_spots_per_day   = e.total_spots_per_day,
+      spot_duration_seconds = e.spot_duration_seconds,
+      price_40spots         = e.price_40spots,
+      price_80spots         = e.price_80spots,
+      price_160spots        = e.price_160spots,
+      pricing_model         = e.pricing_model,
+      discount_7days        = e.discount_7days,
+      discount_30days       = e.discount_30days,
+      discount_90days       = e.discount_90days,
+      discount_180days      = e.discount_180days,
     } = req.body;
 
     const result = await db.query(
       `UPDATE screens SET
-        name=$1, location=$2, lat=$3, lng=$4, price=$5,
-        size=$6, resolution=$7, traffic=$8, description=$9,
-        venue_type=$10, orientation=$11, available=$12,
-        pricing_model=$13, discount_7days=$14,
-        discount_30days=$15, discount_90days=$16,
-        discount_180days=$17
-       WHERE id=$18 RETURNING *`,
-      [name, location, lat, lng, price,
-       size, resolution, traffic, description,
-       venue_type, orientation, available,
-       pricing_model, discount_7days,
-       discount_30days, discount_90days,
-       discount_180days, req.params.id]
+        name=$1, location=$2, lat=$3, lng=$4,
+        description=$5, venue_type=$6, orientation=$7,
+        size=$8, resolution=$9, traffic=$10, available=$11,
+        booking_model=$12,
+        total_spots_per_day=$13, spot_duration_seconds=$14,
+        price_40spots=$15, price_80spots=$16, price_160spots=$17,
+        pricing_model=$18,
+        discount_7days=$19,  discount_30days=$20,
+        discount_90days=$21, discount_180days=$22,
+        price=$23
+       WHERE id=$24 RETURNING *`,
+      [
+        name, location, lat, lng,
+        description, venue_type, orientation,
+        size, resolution, traffic, available,
+        booking_model,
+        total_spots_per_day, spot_duration_seconds,
+        price_40spots, price_80spots, price_160spots,
+        pricing_model,
+        discount_7days,  discount_30days,
+        discount_90days, discount_180days,
+        price_80spots || 0,
+        req.params.id,
+      ]
     );
     res.json(result.rows[0]);
   } catch (err) {
@@ -365,6 +434,52 @@ router.patch('/:id/toggle-availability', auth, async (req, res) => {
     res.json({
       message:   updated.available ? 'Screen is now available.' : 'Screen marked as unavailable.',
       available: updated.available,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/screens/:id/spots-availability
+router.get('/:id/spots-availability', async (req, res) => {
+  try {
+    const { start_date, end_date } = req.query;
+    if (!start_date || !end_date) {
+      return res.status(400).json({ message: 'start_date and end_date are required.' });
+    }
+
+    // Get screen capacity
+    const screen = await db.query(
+      'SELECT total_spots_per_day FROM screens WHERE id = $1',
+      [req.params.id]
+    );
+    if (screen.rows.length === 0) {
+      return res.status(404).json({ message: 'Screen not found.' });
+    }
+
+    const total = screen.rows[0].total_spots_per_day;
+
+    // Get booked spots for the date range
+    const booked = await db.query(
+      `SELECT COALESCE(SUM(spots_per_day), 0) AS booked_spots
+       FROM bookings
+       WHERE screen_id = $1
+         AND status    IN ('pending', 'active')
+         AND end_date  >= CURRENT_DATE
+         AND (start_date, end_date) OVERLAPS ($2::DATE, $3::DATE)`,
+      [req.params.id, start_date, end_date]
+    );
+
+    const bookedSpots    = parseInt(booked.rows[0].booked_spots);
+    const remainingSpots = total - bookedSpots;
+
+    res.json({
+      total_spots:     total,
+      booked_spots:    bookedSpots,
+      remaining_spots: remainingSpots,
+      available_40:    remainingSpots >= 40,
+      available_80:    remainingSpots >= 80,
+      available_160:   remainingSpots >= 160,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
