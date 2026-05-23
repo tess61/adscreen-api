@@ -20,6 +20,11 @@ app.get('/', (req, res) => {
   res.json({ message: 'AdScreen API is running 🚀' });
 });
 
+app.use((err, req, res, next) => {
+  console.error('Global error:', err.message);
+  res.status(500).json({ message: err.message });
+});
+
 app.listen(process.env.PORT || 10000, '0.0.0.0', () => {
   console.log(`✅ Server running on port ${process.env.PORT || 10000}`);
   startCronJobs();
