@@ -8,6 +8,13 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
+// Test route to verify server is running
+try {
+  require('./routes/screens');
+  console.log('✅ screens.js loaded ok');
+} catch (err) {
+  console.error('❌ screens.js failed to load:', err.message);
+}
 
 
 app.use('/api/screens',  require('./routes/screens'));
