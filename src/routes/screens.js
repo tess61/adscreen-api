@@ -202,6 +202,11 @@ router.post('/', auth, uploadScreen.single('image'), async (req, res) => {
   try {
     // multer puts text fields in req.body and file in req.file
     // but sometimes with multipart the body fields come as strings
+    console.log('=== SCREEN POST ===');
+    console.log('body keys:', Object.keys(req.body));
+    console.log('body.name:', req.body.name);
+    console.log('file:', req.file ? 'present' : 'missing');
+    console.log('content-type:', req.headers['content-type']);
     const body = req.body;
 
     const name     = body.name;
