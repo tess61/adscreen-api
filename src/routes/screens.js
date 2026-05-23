@@ -2,6 +2,10 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 const auth    = require('../middleware/auth');
+const { upload, uploadScreen } = require('../cloudinary');
+
+
+
 
 // GET /api/screens — all screens (public)
 router.get('/', async (req, res) => {
@@ -194,7 +198,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/screens — create screen (owners only)
-router.post('/', auth, async (req, res) => {
+router.post('/', auth, uploadScreen.single('image'), async (req, res) => {
   try {
     const {
       name, location, lat, lng, price,
@@ -225,8 +229,6 @@ router.post('/', auth, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-
-const { upload } = require('../cloudinary');
 
 // POST /api/screens/upload-image — upload screen photo
 router.post('/', auth, upload.single('image'), async (req, res) => {
