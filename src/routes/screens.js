@@ -2,10 +2,6 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 const auth    = require('../middleware/auth');
-const { upload, uploadScreen } = require('../cloudinary');
-
-
-
 
 // GET /api/screens — all screens (public)
 router.get('/', async (req, res) => {
@@ -198,15 +194,45 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/screens — create screen (owners only)
+router.post('/', auth, async (req, res) => {
+  try {
+    const {
+      name, location, lat, lng, price,
+      size, resolution, traffic, description,
+      venue_type, orientation, image_url,
+      pricing_model,
+      discount_7days, discount_30days,
+      discount_90days, discount_180days,
+    } = req.body;
+
+    const result = await db.query(
+      `INSERT INTO screens
+        (name, location, lat, lng, price, size, resolution,
+         traffic, description, venue_type, orientation, image_url,
+         owner_id, pricing_model,
+         discount_7days, discount_30days,
+         discount_90days, discount_180days)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       RETURNING *`,
+      [name, location, lat, lng, price, size, resolution,
+       traffic, description, venue_type, orientation, image_url,
+       req.user.id, pricing_model || 'flat',
+       discount_7days  || 0, discount_30days  || 0,
+       discount_90days || 0, discount_180days || 0]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+const { upload } = require('../cloudinary');
+
+// POST /api/screens/upload-image — upload screen photo
 router.post('/', auth, uploadScreen.single('image'), async (req, res) => {
   try {
     // multer puts text fields in req.body and file in req.file
     // but sometimes with multipart the body fields come as strings
-    console.log('=== SCREEN POST ===');
-    console.log('body keys:', Object.keys(req.body));
-    console.log('body.name:', req.body.name);
-    console.log('file:', req.file ? 'present' : 'missing');
-    console.log('content-type:', req.headers['content-type']);
     const body = req.body;
 
     const name     = body.name;
@@ -264,69 +290,6 @@ router.post('/', auth, uploadScreen.single('image'), async (req, res) => {
         body.discount_180days ? Number(body.discount_180days) : 0,
         body.price_80spots  ? Number(body.price_80spots)  :
         body.price_40spots  ? Number(body.price_40spots)  : 0,
-      ]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-
-router.post('/debug', auth, (req, res) => {
-  res.json({ body: req.body, headers: req.headers['content-type'] });
-});
-// POST /api/screens/upload-image — upload screen photo
-router.post('/', auth, upload.single('image'), async (req, res) => {
-  try {
-    const {
-      name, location, lat, lng, description,
-      venue_type, orientation, size, resolution, traffic,
-      booking_model,
-      total_spots_per_day, spot_duration_seconds,
-      price_40spots, price_80spots, price_160spots,
-      pricing_model,
-      discount_7days,  discount_30days,
-      discount_90days, discount_180days,
-    } = req.body;
-
-    const image_url = req.file ? req.file.path : null;
-
-    if (!name || !location) {
-      return res.status(400).json({ message: 'Name and location are required.' });
-    }
-
-    const result = await db.query(
-      `INSERT INTO screens (
-        name, location, lat, lng, description,
-        venue_type, orientation, size, resolution, traffic,
-        image_url, owner_id, available,
-        booking_model,
-        total_spots_per_day, spot_duration_seconds,
-        price_40spots, price_80spots, price_160spots,
-        pricing_model,
-        discount_7days,  discount_30days,
-        discount_90days, discount_180days,
-        price
-      ) VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-        $11,$12,true,$13,$14,$15,$16,$17,$18,
-        $19,$20,$21,$22,$23,$24
-      ) RETURNING *`,
-      [
-        name, location, lat, lng, description,
-        venue_type, orientation, size, resolution, traffic,
-        image_url, req.user.id,
-        booking_model      || 'spots',
-        total_spots_per_day || 160,
-        spot_duration_seconds || 15,
-        price_40spots  || null,
-        price_80spots  || null,
-        price_160spots || null,
-        pricing_model  || 'flat',
-        discount_7days   || 0, discount_30days  || 0,
-        discount_90days  || 0, discount_180days || 0,
-        price_80spots || 0, // use 80spots price as default price
       ]
     );
     res.status(201).json(result.rows[0]);
