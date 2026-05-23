@@ -200,29 +200,66 @@ router.get('/:id', async (req, res) => {
 // POST /api/screens — create screen (owners only)
 router.post('/', auth, uploadScreen.single('image'), async (req, res) => {
   try {
-    const {
-      name, location, lat, lng, price,
-      size, resolution, traffic, description,
-      venue_type, orientation, image_url,
-      pricing_model,
-      discount_7days, discount_30days,
-      discount_90days, discount_180days,
-    } = req.body;
+    // multer puts text fields in req.body and file in req.file
+    // but sometimes with multipart the body fields come as strings
+    const body = req.body;
+
+    const name     = body.name;
+    const location = body.location;
+
+    if (!name || !location) {
+      return res.status(400).json({ 
+        message: 'Name and location are required.',
+        received: Object.keys(body), // debug — shows what fields arrived
+      });
+    }
+
+    const image_url = req.file ? req.file.path : null;
 
     const result = await db.query(
-      `INSERT INTO screens
-        (name, location, lat, lng, price, size, resolution,
-         traffic, description, venue_type, orientation, image_url,
-         owner_id, pricing_model,
-         discount_7days, discount_30days,
-         discount_90days, discount_180days)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-       RETURNING *`,
-      [name, location, lat, lng, price, size, resolution,
-       traffic, description, venue_type, orientation, image_url,
-       req.user.id, pricing_model || 'flat',
-       discount_7days  || 0, discount_30days  || 0,
-       discount_90days || 0, discount_180days || 0]
+      `INSERT INTO screens (
+        name, location, lat, lng, description,
+        venue_type, orientation, size, resolution, traffic,
+        image_url, owner_id, available,
+        booking_model,
+        total_spots_per_day, spot_duration_seconds,
+        price_40spots, price_80spots, price_160spots,
+        pricing_model,
+        discount_7days, discount_30days,
+        discount_90days, discount_180days,
+        price
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+        $11,$12,true,$13,$14,$15,$16,$17,$18,
+        $19,$20,$21,$22,$23,$24
+      ) RETURNING *`,
+      [
+        body.name,
+        body.location,
+        body.lat        ? Number(body.lat)        : null,
+        body.lng        ? Number(body.lng)        : null,
+        body.description || null,
+        body.venue_type  || null,
+        body.orientation || null,
+        body.size        || null,
+        body.resolution  || null,
+        body.traffic     || null,
+        image_url,
+        req.user.id,
+        body.booking_model         || 'spots',
+        body.total_spots_per_day   ? Number(body.total_spots_per_day)   : 160,
+        body.spot_duration_seconds ? Number(body.spot_duration_seconds) : 15,
+        body.price_40spots  ? Number(body.price_40spots)  : null,
+        body.price_80spots  ? Number(body.price_80spots)  : null,
+        body.price_160spots ? Number(body.price_160spots) : null,
+        body.pricing_model  || 'flat',
+        body.discount_7days   ? Number(body.discount_7days)   : 0,
+        body.discount_30days  ? Number(body.discount_30days)  : 0,
+        body.discount_90days  ? Number(body.discount_90days)  : 0,
+        body.discount_180days ? Number(body.discount_180days) : 0,
+        body.price_80spots  ? Number(body.price_80spots)  :
+        body.price_40spots  ? Number(body.price_40spots)  : 0,
+      ]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -230,6 +267,10 @@ router.post('/', auth, uploadScreen.single('image'), async (req, res) => {
   }
 });
 
+
+router.post('/debug', auth, (req, res) => {
+  res.json({ body: req.body, headers: req.headers['content-type'] });
+});
 // POST /api/screens/upload-image — upload screen photo
 router.post('/', auth, upload.single('image'), async (req, res) => {
   try {
