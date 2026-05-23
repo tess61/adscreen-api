@@ -199,4 +199,74 @@ router.delete('/avatar', auth, async (req, res) => {
   }
 });
 
+// GET /api/auth/stats — get role-specific stats for profile
+router.get('/stats', auth, async (req, res) => {
+  try {
+    if (req.user.role === 'owner') {
+      const [screens, bookings, wallet] = await Promise.all([
+        db.query(
+          'SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE available = true) AS active FROM screens WHERE owner_id = $1',
+          [req.user.id]
+        ),
+        db.query(
+          `SELECT
+            COUNT(*) FILTER (WHERE status = 'pending')   AS pending,
+            COUNT(*) FILTER (WHERE status = 'active')    AS active,
+            COUNT(*) FILTER (WHERE status = 'completed') AS completed
+           FROM bookings b
+           JOIN screens s ON b.screen_id = s.id
+           WHERE s.owner_id = $1`,
+          [req.user.id]
+        ),
+        db.query(
+          'SELECT balance, total_earned FROM wallets WHERE user_id = $1',
+          [req.user.id]
+        ),
+      ]);
+
+      res.json({
+        role:             'owner',
+        total_screens:    parseInt(screens.rows[0].total),
+        active_screens:   parseInt(screens.rows[0].active),
+        pending_bookings: parseInt(bookings.rows[0].pending),
+        active_campaigns: parseInt(bookings.rows[0].active),
+        completed_campaigns: parseInt(bookings.rows[0].completed),
+        wallet_balance:   Number(wallet.rows[0]?.balance      ?? 0),
+        total_earned:     Number(wallet.rows[0]?.total_earned  ?? 0),
+      });
+    } else {
+      const [bookings, wallet] = await Promise.all([
+        db.query(
+          `SELECT
+            COUNT(*) FILTER (WHERE status = 'pending')   AS pending,
+            COUNT(*) FILTER (WHERE status = 'active')    AS active,
+            COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+            COALESCE(SUM(total), 0)                      AS total_spent
+           FROM bookings
+           WHERE advertiser_id = $1`,
+          [req.user.id]
+        ),
+        db.query(
+          'SELECT balance, total_spent FROM wallets WHERE user_id = $1',
+          [req.user.id]
+        ),
+      ]);
+
+      res.json({
+        role:             'advertiser',
+        pending_campaigns:   parseInt(bookings.rows[0].pending),
+        active_campaigns:    parseInt(bookings.rows[0].active),
+        completed_campaigns: parseInt(bookings.rows[0].completed),
+        total_campaigns:     parseInt(bookings.rows[0].pending) +
+                             parseInt(bookings.rows[0].active) +
+                             parseInt(bookings.rows[0].completed),
+        total_spent:      Number(bookings.rows[0].total_spent ?? 0),
+        wallet_balance:   Number(wallet.rows[0]?.balance      ?? 0),
+      });
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;
