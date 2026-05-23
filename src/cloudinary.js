@@ -9,6 +9,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+// Keep your existing storage for creative files (unchanged)
 const storage = new CloudinaryStorage({
   cloudinary,
   params: async (req, file) => {
@@ -26,6 +27,24 @@ const storage = new CloudinaryStorage({
   },
 });
 
+// NEW storage for screen images (doesn't affect existing code)
+const screenImageStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'adscreen/screens',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'gif'],
+    transformation: [
+      { width: 1200, height: 800, crop: 'limit', quality: 'auto' }
+    ],
+  },
+});
+
+// Keep the original upload export for backward compatibility
 const upload = multer({ storage });
 
-module.exports = { cloudinary, upload };
+// Export both - existing code continues to work
+module.exports = { 
+  cloudinary, 
+  upload,                    // ← Original one, unchanged for existing code
+  uploadScreenImage: multer({ storage: screenImageStorage })  // ← New one for screens
+};
