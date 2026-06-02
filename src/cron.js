@@ -93,7 +93,7 @@ async function completeExpiredBookings() {
 }
 
 function startCronJobs() {
-  // Run every day at midnight Addis Abeba time (UTC+3 = 21:00 UTC)
+  // Run every day at midnight Addis Ababa time (UTC+3 = 21:00 UTC)
   cron.schedule('0 21 * * *', () => {
     completeExpiredBookings();
   }, {
